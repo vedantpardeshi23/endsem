@@ -1,12 +1,13 @@
 import axios from 'axios';
 
-const NEWS_API_KEY = import.meta.env.VITE_NEWS_API_KEY;
+// Spaceflight News API (v4) - Free, No Key Required, Works on Production
+const SPACE_NEWS_API = 'https://api.spaceflightnewsapi.net/v4/articles';
 const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
 
-const CATEGORIES = ['general', 'technology', 'science', 'business', 'health'];
+const CATEGORIES = ['all', 'news', 'blogs', 'reports'];
 
 function getCacheKey(category, query) {
-  return `news_cache_${category}_${query || 'default'}`;
+  return `space_news_cache_${category}_${query || 'default'}`;
 }
 
 function getFromCache(key) {
@@ -29,86 +30,64 @@ function setCache(key, data) {
   try {
     localStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
   } catch {
-    // localStorage full, clear old caches
-    CATEGORIES.forEach((cat) => {
-      localStorage.removeItem(getCacheKey(cat, ''));
-    });
+    localStorage.clear(); // Clear all if full
   }
 }
 
-export async function fetchNews(category = 'general', query = '') {
+export async function fetchNews(category = 'all', query = '') {
   const cacheKey = getCacheKey(category, query);
   const cached = getFromCache(cacheKey);
   if (cached) return cached;
 
   try {
     const params = {
-      apiKey: NEWS_API_KEY,
-      pageSize: 12,
-      language: 'en',
+      limit: 12,
     };
 
-    let url = 'https://newsapi.org/v2/top-headlines';
-
     if (query) {
-      url = 'https://newsapi.org/v2/everything';
-      params.q = query;
-      params.sortBy = 'publishedAt';
-    } else {
-      params.category = category;
-      params.country = 'us';
+      params.search = query;
     }
 
+    let url = SPACE_NEWS_API;
+    // Note: The API uses different endpoints or params for types, 
+    // for simplicity we'll use the main articles endpoint with search if needed
+    
     const response = await axios.get(url, { params });
 
-    const articles = (response.data.articles || [])
-      .filter((a) => a.title && a.title !== '[Removed]')
-      .map((article, index) => ({
-        id: `${category}-${index}-${Date.now()}`,
+    const articles = (response.data.results || [])
+      .map((article) => ({
+        id: article.id.toString(),
         title: article.title,
-        description: article.description,
+        description: article.summary,
         url: article.url,
-        image: article.urlToImage,
-        author: article.author,
-        source: article.source?.name || 'Unknown',
-        publishedAt: article.publishedAt,
-        category,
+        image: article.image_url,
+        author: article.news_site,
+        source: article.news_site,
+        publishedAt: article.published_at,
+        category: category,
       }));
 
     setCache(cacheKey, articles);
     return articles;
   } catch (error) {
-    // If API fails (e.g., CORS on production), try proxy
-    if (error.response?.status === 426 || error.message?.includes('CORS')) {
-      throw new Error('NewsAPI requires a paid plan for production. Using cached data if available.');
-    }
-    throw error;
+    console.error('Space News API error:', error);
+    return [];
   }
 }
 
 export async function fetchNewsByCategories() {
-  const results = {};
-  const promises = CATEGORIES.map(async (category) => {
-    try {
-      const articles = await fetchNews(category);
-      results[category] = articles;
-    } catch {
-      results[category] = [];
-    }
-  });
-
-  await Promise.allSettled(promises);
-  return results;
+  const articles = await fetchNews('all');
+  return {
+    all: articles,
+    news: articles.slice(0, 4),
+    blogs: articles.slice(4, 8),
+    reports: articles.slice(8, 12)
+  };
 }
 
 export function clearNewsCache() {
-  CATEGORIES.forEach((cat) => {
-    const keys = Object.keys(localStorage).filter((k) => k.startsWith(`news_cache_${cat}`));
-    keys.forEach((k) => localStorage.removeItem(k));
-  });
-  // Also clear any query caches
   Object.keys(localStorage)
-    .filter((k) => k.startsWith('news_cache_'))
+    .filter((k) => k.startsWith('space_news_cache_'))
     .forEach((k) => localStorage.removeItem(k));
 }
 

@@ -1,134 +1,75 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { fetchNews, fetchNewsByCategories, clearNewsCache, CATEGORIES } from '../services/newsService';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { fetchNews, CATEGORIES } from '../services/newsService';
 import toast from 'react-hot-toast';
 
 const NewsContext = createContext();
 
 export function NewsProvider({ children }) {
-  const [articles, setArticles] = useState({});
-  const [allArticles, setAllArticles] = useState([]);
-  const [activeCategory, setActiveCategory] = useState('general');
+  const [articles, setArticles] = useState([]);
+  const [category, setCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [sortBy, setSortBy] = useState('date');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isSearching, setIsSearching] = useState(false);
 
-  const loadAllNews = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const results = await fetchNewsByCategories();
-      setArticles(results);
-      const all = Object.values(results).flat();
-      setAllArticles(all);
-      setLoading(false);
-    } catch (err) {
-      setError(err.message);
-      setLoading(false);
-    }
-  }, []);
-
-  const loadCategory = useCallback(async (category) => {
-    setActiveCategory(category);
-    setSearchQuery('');
-    setSearchResults([]);
-    setIsSearching(false);
-    try {
-      const results = await fetchNews(category);
-      setArticles((prev) => ({ ...prev, [category]: results }));
-    } catch (err) {
-      console.error(`Failed to load ${category}:`, err);
-    }
-  }, []);
-
-  const searchNews = useCallback(async (query) => {
-    if (!query.trim()) {
-      setSearchResults([]);
-      setIsSearching(false);
-      return;
-    }
-    setIsSearching(true);
+  const loadNews = useCallback(async (cat = 'all', query = '') => {
     setLoading(true);
     try {
-      const results = await fetchNews('general', query);
-      setSearchResults(results);
-      setLoading(false);
+      const data = await fetchNews(cat, query);
+      setArticles(data);
+      setError(null);
     } catch (err) {
-      setError(err.message);
+      setError('Failed to fetch latest intelligence');
+      toast.error('Sync failed');
+    } finally {
       setLoading(false);
     }
   }, []);
-
-  const refreshNews = useCallback(() => {
-    clearNewsCache();
-    toast.promise(loadAllNews(), {
-      loading: 'Refreshing news...',
-      success: 'News updated!',
-      error: 'Failed to refresh news',
-    });
-  }, [loadAllNews]);
-
-  const sortArticles = useCallback(
-    (articleList) => {
-      const sorted = [...articleList];
-      if (sortBy === 'date') {
-        sorted.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-      } else if (sortBy === 'source') {
-        sorted.sort((a, b) => (a.source || '').localeCompare(b.source || ''));
-      }
-      return sorted;
-    },
-    [sortBy]
-  );
-
-  const getCurrentArticles = useCallback(() => {
-    if (isSearching && searchResults.length > 0) {
-      return sortArticles(searchResults);
-    }
-    const categoryArticles = articles[activeCategory] || [];
-    return sortArticles(categoryArticles);
-  }, [isSearching, searchResults, articles, activeCategory, sortArticles]);
-
-  const getDistribution = useCallback(() => {
-    return CATEGORIES.map((cat) => ({
-      name: cat.charAt(0).toUpperCase() + cat.slice(1),
-      value: (articles[cat] || []).length,
-      category: cat,
-    })).filter((d) => d.value > 0);
-  }, [articles]);
 
   useEffect(() => {
-    loadAllNews();
-  }, [loadAllNews]);
+    loadNews(category, searchQuery);
+  }, [category, searchQuery, loadNews]);
 
-  const value = {
-    articles,
-    allArticles,
-    activeCategory,
-    setActiveCategory: loadCategory,
-    searchQuery,
-    setSearchQuery,
-    searchResults,
-    searchNews,
-    isSearching,
-    sortBy,
-    setSortBy,
-    loading,
-    error,
-    refreshNews,
-    getCurrentArticles,
-    getDistribution,
-    categories: CATEGORIES,
-    totalArticles: allArticles.length,
+  const refresh = () => {
+    loadNews(category, searchQuery);
+    toast.success('Intelligence feed updated', {
+      style: {
+        background: '#1a1a24',
+        color: '#fff',
+        border: '1px solid rgba(255,255,255,0.1)'
+      }
+    });
   };
 
-  return <NewsContext.Provider value={value}>{children}</NewsContext.Provider>;
+  const getDistribution = () => {
+    if (articles.length === 0) return [];
+    
+    // Group by source since we're using Spaceflight News
+    const counts = articles.reduce((acc, art) => {
+      acc[art.source] = (acc[art.source] || 0) + 1;
+      return acc;
+    }, {});
+
+    return Object.entries(counts).map(([name, value]) => ({ name, value })).slice(0, 6);
+  };
+
+  return (
+    <NewsContext.Provider
+      value={{
+        articles,
+        category,
+        setCategory,
+        searchQuery,
+        setSearchQuery,
+        loading,
+        error,
+        refresh,
+        getDistribution,
+        categories: CATEGORIES
+      }}
+    >
+      {children}
+    </NewsContext.Provider>
+  );
 }
 
-export function useNews() {
-  const context = useContext(NewsContext);
-  if (!context) throw new Error('useNews must be used within NewsProvider');
-  return context;
-}
+export const useNews = () => useContext(NewsContext);

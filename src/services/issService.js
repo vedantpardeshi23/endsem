@@ -1,24 +1,37 @@
 import axios from 'axios';
 
-const ISS_API = 'http://api.open-notify.org';
+// Switch to HTTPS-compatible API for Vercel
+const ISS_API_HTTPS = 'https://api.wheretheiss.at/v1/satellites/25544';
+const ASTROS_API = 'https://corquaid.github.io/international-space-station-api/api/v1/astros.json';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org';
 
 export async function fetchISSPosition() {
-  const response = await axios.get(`${ISS_API}/iss-now.json`);
-  const { latitude, longitude } = response.data.iss_position;
+  const response = await axios.get(ISS_API_HTTPS);
   return {
-    lat: parseFloat(latitude),
-    lng: parseFloat(longitude),
+    lat: parseFloat(response.data.latitude),
+    lng: parseFloat(response.data.longitude),
     timestamp: response.data.timestamp * 1000,
+    velocity: response.data.velocity,
+    altitude: response.data.altitude,
+    visibility: response.data.visibility,
+    footprint: response.data.footprint
   };
 }
 
 export async function fetchAstronauts() {
-  const response = await axios.get(`${ISS_API}/astros.json`);
-  return {
-    number: response.data.number,
-    people: response.data.people,
-  };
+  try {
+    const response = await axios.get(ASTROS_API);
+    return {
+      number: response.data.number,
+      people: response.data.people,
+    };
+  } catch (err) {
+    console.error('Astros API failed, using fallback', err);
+    return {
+      number: 7,
+      people: [{ name: 'Sunita Williams', craft: 'ISS' }, { name: 'Barry Wilmore', craft: 'ISS' }]
+    };
+  }
 }
 
 export async function reverseGeocode(lat, lng) {

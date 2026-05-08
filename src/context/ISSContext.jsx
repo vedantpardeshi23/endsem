@@ -1,67 +1,52 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { fetchISSPosition, fetchAstronauts, reverseGeocode } from '../services/issService';
-import { calculateSpeed } from '../utils/haversine';
+import { calculateSpeed, calculateDistance } from '../utils/haversine';
 import toast from 'react-hot-toast';
 
 const ISSContext = createContext();
 
 const MAX_POSITIONS = 15;
 const MAX_SPEED_HISTORY = 30;
-const FETCH_INTERVAL = 15000;
+const POLLING_INTERVAL = 30000; // 30s to stay well within rate limits
+const MIN_DISTANCE_FOR_GEOCODE = 50; // Only geocode if ISS has moved > 50km
 
 export function ISSProvider({ children }) {
   const [position, setPosition] = useState(null);
   const [positions, setPositions] = useState([]);
-  const [speed, setSpeed] = useState(0);
-  const [speedHistory, setSpeedHistory] = useState([]);
-  const [locationName, setLocationName] = useState('Calculating...');
-  const [astronauts, setAstronauts] = useState({ number: 0, people: [] });
+  const [lastUpdate, setLastUpdate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [locationName, setLocationName] = useState('Tracking...');
+  const [speed, setSpeed] = useState(0);
+  const [speedHistory, setSpeedHistory] = useState([]);
+  const [astronauts, setAstronauts] = useState({ number: 0, people: [] });
   const [isLive, setIsLive] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState(null);
+
   const prevPositionRef = useRef(null);
-  const intervalRef = useRef(null);
 
   const updatePosition = useCallback(async () => {
     try {
-      const newPos = fetchISSPosition();
-      const pos = await newPos;
+      const pos = await fetchISSPosition();
 
       setPosition(pos);
       setLastUpdate(Date.now());
-      setError(null);
 
-      // Calculate speed
+      // Calculate Speed
       if (prevPositionRef.current) {
         const timeDiff = (pos.timestamp - prevPositionRef.current.timestamp) / 1000;
         if (timeDiff > 0) {
           const newSpeed = calculateSpeed(prevPositionRef.current, pos, timeDiff);
-          const speedNum = parseFloat(newSpeed);
-          // Filter out unrealistic speeds (ISS orbits at ~27,600 km/h)
-          if (speedNum > 0 && speedNum < 50000) {
-            setSpeed(speedNum);
-            setSpeedHistory((prev) => {
-              const updated = [
-                ...prev,
-                {
-                  time: new Date(pos.timestamp).toLocaleTimeString('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: false,
-                  }),
-                  speed: speedNum,
-                  timestamp: pos.timestamp,
-                },
-              ];
-              return updated.slice(-MAX_SPEED_HISTORY);
-            });
-          }
+          setSpeed(newSpeed);
+          
+          setSpeedHistory((prev) => {
+            const newHistory = [...prev, { 
+              time: new Date(pos.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), 
+              speed: parseFloat(newSpeed) 
+            }];
+            return newHistory.slice(-MAX_SPEED_HISTORY);
+          });
         }
       }
-
-      prevPositionRef.current = pos;
 
       // Update positions list
       setPositions((prev) => {
@@ -69,72 +54,83 @@ export function ISSProvider({ children }) {
         return updated.slice(-MAX_POSITIONS);
       });
 
-      // Reverse geocode (throttled)
+      // Reverse geocode (Optimized)
       try {
-        const name = await reverseGeocode(pos.lat, pos.lng);
-        setLocationName(name);
+        // Only geocode if we haven't yet, or if we've moved significantly
+        if (!prevPositionRef.current || calculateDistance(prevPositionRef.current.lat, prevPositionRef.current.lng, pos.lat, pos.lng) > MIN_DISTANCE_FOR_GEOCODE) {
+          const name = await reverseGeocode(pos.lat, pos.lng);
+          setLocationName(name);
+        }
       } catch {
-        setLocationName('Over Ocean');
+        // Fallback already handled in service
       }
 
+      prevPositionRef.current = pos;
       setIsLive(true);
       setLoading(false);
+      setError(null);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to sync with ISS telemetry');
       setIsLive(false);
       setLoading(false);
     }
   }, []);
 
-  const loadAstronauts = useCallback(async () => {
+  const fetchAstros = useCallback(async () => {
     try {
       const data = await fetchAstronauts();
       setAstronauts(data);
     } catch (err) {
-      console.error('Failed to fetch astronauts:', err);
+      console.error('Failed to fetch astronauts', err);
     }
   }, []);
 
-  const refresh = useCallback(() => {
-    toast.promise(updatePosition(), {
-      loading: 'Refreshing ISS data...',
-      success: 'ISS data updated!',
-      error: 'Failed to refresh',
-    });
-  }, [updatePosition]);
-
-  // Auto-fetch ISS position
   useEffect(() => {
     updatePosition();
-    loadAstronauts();
+    fetchAstros();
 
-    intervalRef.current = setInterval(updatePosition, FETCH_INTERVAL);
+    const interval = setInterval(() => {
+      if (isLive) {
+        updatePosition();
+      }
+    }, POLLING_INTERVAL);
 
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [updatePosition, loadAstronauts]);
+    return () => clearInterval(interval);
+  }, [updatePosition, fetchAstros, isLive]);
 
-  const value = {
-    position,
-    positions,
-    speed,
-    speedHistory,
-    locationName,
-    astronauts,
-    loading,
-    error,
-    isLive,
-    lastUpdate,
-    refresh,
-    positionCount: positions.length,
+  const refresh = () => {
+    setLoading(true);
+    updatePosition();
+    fetchAstros();
+    toast.success('ISS data updated!', {
+      style: {
+        background: '#1a1a24',
+        color: '#fff',
+        border: '1px solid rgba(255,255,255,0.1)'
+      }
+    });
   };
 
-  return <ISSContext.Provider value={value}>{children}</ISSContext.Provider>;
+  return (
+    <ISSContext.Provider
+      value={{
+        position,
+        positions,
+        lastUpdate,
+        loading,
+        error,
+        locationName,
+        speed,
+        speedHistory,
+        astronauts,
+        isLive,
+        setIsLive,
+        refresh,
+      }}
+    >
+      {children}
+    </ISSContext.Provider>
+  );
 }
 
-export function useISS() {
-  const context = useContext(ISSContext);
-  if (!context) throw new Error('useISS must be used within ISSProvider');
-  return context;
-}
+export const useISS = () => useContext(ISSContext);

@@ -1,22 +1,26 @@
 import axios from 'axios';
 
-// Call internal Vercel API proxies
-const API_BASE = '/api';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org';
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 export async function fetchISSPosition() {
-  const response = await axios.get(`${API_BASE}/iss`);
-  const { latitude, longitude } = response.data.iss_position;
+  const url = isLocal ? 'http://api.open-notify.org/iss-now.json' : '/api/iss';
+  const response = await axios.get(url);
+  const data = response.data;
+  
+  // Handle different response formats (Direct vs Proxy)
+  const position = data.iss_position || data; 
   return {
-    lat: parseFloat(latitude),
-    lng: parseFloat(longitude),
-    timestamp: response.data.timestamp * 1000,
+    lat: parseFloat(position.latitude),
+    lng: parseFloat(position.longitude),
+    timestamp: (data.timestamp || Date.now() / 1000) * 1000,
   };
 }
 
 export async function fetchAstronauts() {
   try {
-    const response = await axios.get(`${API_BASE}/iss?type=astros`);
+    const url = isLocal ? 'http://api.open-notify.org/astros.json' : '/api/iss?type=astros';
+    const response = await axios.get(url);
     return {
       number: response.data.number,
       people: response.data.people,

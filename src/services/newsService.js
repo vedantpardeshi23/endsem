@@ -1,19 +1,39 @@
 import axios from 'axios';
 
-// Call internal Vercel API proxy
-const API_BASE = '/api';
+const NEWS_API_KEY = import.meta.env.VITE_NEWS_API_KEY;
 const CATEGORIES = ['general', 'technology', 'science', 'business', 'health'];
+
+// Smart URL Switching: Use direct API on localhost, Proxy on Vercel
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 export async function fetchNews(category = 'general', query = '') {
   try {
-    const params = {};
-    if (query) {
-      params.q = query;
+    const params = {
+      apiKey: NEWS_API_KEY,
+      pageSize: 12,
+      language: 'en',
+    };
+
+    let url;
+    if (isLocal) {
+      // Direct access on localhost
+      if (query) {
+        url = 'https://newsapi.org/v2/everything';
+        params.q = query;
+        params.sortBy = 'publishedAt';
+      } else {
+        url = 'https://newsapi.org/v2/top-headlines';
+        params.category = category;
+        params.country = 'us';
+      }
     } else {
-      params.category = category;
+      // Use Vercel Serverless Function on production
+      url = '/api/news';
+      if (query) params.q = query;
+      else params.category = category;
     }
 
-    const response = await axios.get(`${API_BASE}/news`, { params });
+    const response = await axios.get(url, { params });
 
     const articles = (response.data.articles || [])
       .filter((a) => a.title && a.title !== '[Removed]')

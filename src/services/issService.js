@@ -1,36 +1,32 @@
 import axios from 'axios';
 
-// Switch to HTTPS-compatible API for Vercel
-const ISS_API_HTTPS = 'https://api.wheretheiss.at/v1/satellites/25544';
-const ASTROS_API = 'https://corquaid.github.io/international-space-station-api/api/v1/astros.json';
+// Use a CORS proxy to allow original HTTP APIs to work on HTTPS Vercel
+const PROXY = 'https://api.allorigins.win/raw?url=';
+const ISS_BASE = 'http://api.open-notify.org';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org';
 
 export async function fetchISSPosition() {
-  const response = await axios.get(ISS_API_HTTPS);
+  const url = `${PROXY}${encodeURIComponent(`${ISS_BASE}/iss-now.json`)}`;
+  const response = await axios.get(url);
+  const { latitude, longitude } = response.data.iss_position;
   return {
-    lat: parseFloat(response.data.latitude),
-    lng: parseFloat(response.data.longitude),
+    lat: parseFloat(latitude),
+    lng: parseFloat(longitude),
     timestamp: response.data.timestamp * 1000,
-    velocity: response.data.velocity,
-    altitude: response.data.altitude,
-    visibility: response.data.visibility,
-    footprint: response.data.footprint
   };
 }
 
 export async function fetchAstronauts() {
   try {
-    const response = await axios.get(ASTROS_API);
+    const url = `${PROXY}${encodeURIComponent(`${ISS_BASE}/astros.json`)}`;
+    const response = await axios.get(url);
     return {
       number: response.data.number,
       people: response.data.people,
     };
   } catch (err) {
-    console.error('Astros API failed, using fallback', err);
-    return {
-      number: 7,
-      people: [{ name: 'Sunita Williams', craft: 'ISS' }, { name: 'Barry Wilmore', craft: 'ISS' }]
-    };
+    console.error('Astros API failed', err);
+    return { number: 0, people: [] };
   }
 }
 

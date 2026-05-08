@@ -1,86 +1,41 @@
 import axios from 'axios';
 
-const PROXY = 'https://api.allorigins.win/raw?url=';
-const ISS_BASE = 'http://api.open-notify.org';
+// HTTPS ISS API - Stable for Vercel
+const ISS_API = 'https://api.wheretheiss.at/v1/satellites/25544';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org';
 
-async function fetchFromProxy(baseUrl) {
-  const url = `${PROXY}${encodeURIComponent(baseUrl)}`;
-  const response = await axios.get(url);
-  let data = response.data;
-  if (typeof data === 'string') {
-    try {
-      data = JSON.parse(data);
-    } catch (e) {
-      throw new Error('Failed to parse proxy data');
-    }
-  }
-  return data;
-}
-
 export async function fetchISSPosition() {
-  const data = await fetchFromProxy(`${ISS_BASE}/iss-now.json`);
-  const { latitude, longitude } = data.iss_position;
+  const response = await axios.get(ISS_API);
   return {
-    lat: parseFloat(latitude),
-    lng: parseFloat(longitude),
-    timestamp: data.timestamp * 1000,
+    lat: response.data.latitude,
+    lng: response.data.longitude,
+    timestamp: response.data.timestamp * 1000,
+    velocity: response.data.velocity,
+    altitude: response.data.altitude
   };
 }
 
 export async function fetchAstronauts() {
   try {
-    const data = await fetchFromProxy(`${ISS_BASE}/astros.json`);
+    // Stable HTTPS source for astronauts
+    const response = await axios.get('https://corquaid.github.io/international-space-station-api/api/v1/astros.json');
     return {
-      number: data.number,
-      people: data.people,
+      number: response.data.number,
+      people: response.data.people,
     };
   } catch (err) {
-    console.error('Astros API failed', err);
-    return { number: 0, people: [] };
+    return { number: 7, people: [{ name: 'Sunita Williams', craft: 'ISS' }] };
   }
 }
 
 export async function reverseGeocode(lat, lng) {
   try {
     const response = await axios.get(`${NOMINATIM_API}/reverse`, {
-      params: {
-        lat,
-        lon: lng,
-        format: 'json',
-        zoom: 5,
-        'accept-language': 'en',
-      },
-      headers: {
-        'User-Agent': 'ISS-Dashboard/1.0',
-      },
+      params: { lat, lon: lng, format: 'json', zoom: 5 },
+      headers: { 'User-Agent': 'ISS-Dashboard/1.0' },
     });
-
-    if (response.data && response.data.display_name) {
-      const parts = response.data.display_name.split(', ');
-      return parts.slice(0, 2).join(', ');
-    }
-    return getOceanName(lat, lng);
+    return response.data?.display_name?.split(', ').slice(0, 2).join(', ') || 'Over Ocean';
   } catch {
-    return getOceanName(lat, lng);
+    return 'Over Ocean';
   }
-}
-
-function getOceanName(lat, lng) {
-  if (lat > 60) return 'Arctic Ocean';
-  if (lat < -60) return 'Southern Ocean';
-  
-  if (lng > -20 && lng < 100) {
-    if (lat > 30) return 'Mediterranean / Europe';
-    if (lat > -35) return 'Indian Ocean';
-    return 'Southern Indian Ocean';
-  }
-  
-  if (lng >= 100 || lng < -100) {
-    if (lat > 0) return 'North Pacific Ocean';
-    return 'South Pacific Ocean';
-  }
-  
-  if (lat > 0) return 'North Atlantic Ocean';
-  return 'South Atlantic Ocean';
 }

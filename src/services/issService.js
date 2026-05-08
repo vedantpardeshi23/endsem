@@ -1,28 +1,39 @@
 import axios from 'axios';
 
-// Use a CORS proxy to allow original HTTP APIs to work on HTTPS Vercel
 const PROXY = 'https://api.allorigins.win/raw?url=';
 const ISS_BASE = 'http://api.open-notify.org';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org';
 
-export async function fetchISSPosition() {
-  const url = `${PROXY}${encodeURIComponent(`${ISS_BASE}/iss-now.json`)}`;
+async function fetchFromProxy(baseUrl) {
+  const url = `${PROXY}${encodeURIComponent(baseUrl)}`;
   const response = await axios.get(url);
-  const { latitude, longitude } = response.data.iss_position;
+  let data = response.data;
+  if (typeof data === 'string') {
+    try {
+      data = JSON.parse(data);
+    } catch (e) {
+      throw new Error('Failed to parse proxy data');
+    }
+  }
+  return data;
+}
+
+export async function fetchISSPosition() {
+  const data = await fetchFromProxy(`${ISS_BASE}/iss-now.json`);
+  const { latitude, longitude } = data.iss_position;
   return {
     lat: parseFloat(latitude),
     lng: parseFloat(longitude),
-    timestamp: response.data.timestamp * 1000,
+    timestamp: data.timestamp * 1000,
   };
 }
 
 export async function fetchAstronauts() {
   try {
-    const url = `${PROXY}${encodeURIComponent(`${ISS_BASE}/astros.json`)}`;
-    const response = await axios.get(url);
+    const data = await fetchFromProxy(`${ISS_BASE}/astros.json`);
     return {
-      number: response.data.number,
-      people: response.data.people,
+      number: data.number,
+      people: data.people,
     };
   } catch (err) {
     console.error('Astros API failed', err);

@@ -1,41 +1,72 @@
 import axios from 'axios';
 
-// HTTPS ISS API - Stable for Vercel
-const ISS_API = 'https://api.wheretheiss.at/v1/satellites/25544';
+// Call internal Vercel API proxies
+const API_BASE = '/api';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org';
 
 export async function fetchISSPosition() {
-  const response = await axios.get(ISS_API);
+  const response = await axios.get(`${API_BASE}/iss`);
+  const { latitude, longitude } = response.data.iss_position;
   return {
-    lat: response.data.latitude,
-    lng: response.data.longitude,
+    lat: parseFloat(latitude),
+    lng: parseFloat(longitude),
     timestamp: response.data.timestamp * 1000,
-    velocity: response.data.velocity,
-    altitude: response.data.altitude
   };
 }
 
 export async function fetchAstronauts() {
   try {
-    // Stable HTTPS source for astronauts
-    const response = await axios.get('https://corquaid.github.io/international-space-station-api/api/v1/astros.json');
+    const response = await axios.get(`${API_BASE}/iss?type=astros`);
     return {
       number: response.data.number,
       people: response.data.people,
     };
   } catch (err) {
-    return { number: 7, people: [{ name: 'Sunita Williams', craft: 'ISS' }] };
+    console.error('Astros API failed', err);
+    return { number: 0, people: [] };
   }
 }
 
 export async function reverseGeocode(lat, lng) {
   try {
     const response = await axios.get(`${NOMINATIM_API}/reverse`, {
-      params: { lat, lon: lng, format: 'json', zoom: 5 },
-      headers: { 'User-Agent': 'ISS-Dashboard/1.0' },
+      params: {
+        lat,
+        lon: lng,
+        format: 'json',
+        zoom: 5,
+        'accept-language': 'en',
+      },
+      headers: {
+        'User-Agent': 'ISS-Dashboard/1.0',
+      },
     });
-    return response.data?.display_name?.split(', ').slice(0, 2).join(', ') || 'Over Ocean';
+
+    if (response.data && response.data.display_name) {
+      const parts = response.data.display_name.split(', ');
+      return parts.slice(0, 2).join(', ');
+    }
+    return getOceanName(lat, lng);
   } catch {
-    return 'Over Ocean';
+    return getOceanName(lat, lng);
   }
+}
+
+function getOceanName(lat, lng) {
+  if (lat > 60) return 'Arctic Ocean';
+  if (lat < -60) return 'Southern Ocean';
+  
+  if (lng > -20 && lng < 100) {
+    if (lat > 30) return 'Mediterranean / Europe';
+    if (lat > -35) return 'Indian Ocean';
+    return 'Southern Indian Ocean';
+  }
+  
+  if (lng >= 100 || lng < -100) {
+    if (lat > 0) return 'North Pacific Ocean';
+    return 'South Pacific Ocean';
+  }
+  
+  if (lat > 0) return 'North Atlantic Ocean';
+  return 'South Atlantic Ocean';
 }

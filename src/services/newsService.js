@@ -1,34 +1,47 @@
 import axios from 'axios';
 
-// Spaceflight News API - Most stable for Vercel (No Proxy/Keys needed)
-const SPACE_NEWS_API = 'https://api.spaceflightnewsapi.net/v4/articles';
+// Call internal Vercel API proxy
+const API_BASE = '/api';
+const CATEGORIES = ['general', 'technology', 'science', 'business', 'health'];
 
-export async function fetchNews(category = 'all', query = '') {
+export async function fetchNews(category = 'general', query = '') {
   try {
-    const params = { limit: 12 };
-    if (query) params.search = query;
-    
-    const response = await axios.get(SPACE_NEWS_API, { params });
-    return (response.data.results || []).map((article) => ({
-      id: article.id.toString(),
-      title: article.title,
-      description: article.summary,
-      url: article.url,
-      image: article.image_url,
-      author: article.news_site,
-      source: article.news_site,
-      publishedAt: article.published_at,
-      category: 'general',
-    }));
+    const params = {};
+    if (query) {
+      params.q = query;
+    } else {
+      params.category = category;
+    }
+
+    const response = await axios.get(`${API_BASE}/news`, { params });
+
+    const articles = (response.data.articles || [])
+      .filter((a) => a.title && a.title !== '[Removed]')
+      .map((article, index) => ({
+        id: `${category}-${index}-${Date.now()}`,
+        title: article.title,
+        description: article.description,
+        url: article.url,
+        image: article.urlToImage,
+        author: article.author,
+        source: article.source?.name || 'Unknown',
+        publishedAt: article.publishedAt,
+        category,
+      }));
+
+    return articles;
   } catch (error) {
-    console.error('News API error:', error);
+    console.error('News fetch failed:', error);
     return [];
   }
 }
 
 export async function fetchNewsByCategories() {
-  const articles = await fetchNews();
-  return { general: articles, technology: articles, science: articles, business: articles, health: articles };
+  const results = {};
+  for (const cat of CATEGORIES) {
+    results[cat] = await fetchNews(cat);
+  }
+  return results;
 }
 
-export const CATEGORIES = ['general', 'technology', 'science', 'business', 'health'];
+export { CATEGORIES };

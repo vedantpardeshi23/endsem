@@ -6,12 +6,12 @@ const NewsContext = createContext();
 
 export function NewsProvider({ children }) {
   const [articles, setArticles] = useState([]);
-  const [category, setCategory] = useState('all');
+  const [category, setCategory] = useState('general');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const loadNews = useCallback(async (cat = 'all', query = '') => {
+  const loadNews = useCallback(async (cat = 'general', query = '') => {
     setLoading(true);
     try {
       const data = await fetchNews(cat, query);
@@ -43,7 +43,6 @@ export function NewsProvider({ children }) {
   const getDistribution = () => {
     if (articles.length === 0) return [];
     
-    // Group by source since we're using Spaceflight News
     const counts = articles.reduce((acc, art) => {
       acc[art.source] = (acc[art.source] || 0) + 1;
       return acc;
